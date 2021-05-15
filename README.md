@@ -1,6 +1,10 @@
 # Tenants
 Mongo multi-tenancy for Meteor Apps.
 
+```
+meteor add donstephan:tenants
+```
+
 ### Setup
 
 Start by initializing your tenants on startup. This provides a key, value lookup to initialize the tenants remote connection string.
