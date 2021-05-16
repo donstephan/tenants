@@ -35,7 +35,27 @@ Meteor.publish("tenants", () => {
     Links.find({}), // publish all links from main db
     Links.from("tenant_1").find({}) // publish links from tenant
   ]
-})
+});
+
+// example attaching simpl-schema across all your tenant collections
+import SimpleSchema from 'simpl-schema';
+import { Tenants } from 'meteor/donstephan:tenants';
+
+const Books = new Mongo.Collection("books");
+
+const BookSchema = new SimpleSchema({
+  title: String,
+  author: String,
+  description: {
+    type: String,
+    optional: true
+  }
+});
+
+// this will also apply the schema to the main tenant i.e. MONGO_URL
+Tenants.get().forEach((tenant) => {
+  Books.from(tenant).attachSchema(BookSchema);
+});
 ```
 
 ### Why tenants?
@@ -48,7 +68,7 @@ Please note that in order to do the client side lookup of tenants `Collection.fr
 * Mongo indexes will not translate across tenants since they are applied on a raw collection. You will have to make sure to perform `createIndex` on each tenant collection i.e. `Links.from("tenant_1").rawCollection().createIndex({ title: 1 })` or maybe something more creative like `Tenants.get().forEach((tenant) => Links.from(tenant).rawCollection().createIndex({ title: 1 }))`.
 
 ### API
-Tenants.set(tenants, disableAutoPublish, remoteConnectionOptions)
+**Tenants.set(tenants, disableAutoPublish, remoteConnectionOptions)**
 ```
 // see example above
 **tenants**: [{ [tenantName, remoteConnectionString, ...more tenants ]}];
@@ -68,14 +88,15 @@ In order to hook up functionality for LocalCollection to be accessed for that te
 See http://mongodb.github.io/node-mongodb-native/3.0/reference/connecting/connection-settings/.
 ```
 
-Tenants.get:
+**Tenants.get()**
+Note this also returns the default tenant collection (i.e. the main tenant or your `MONGO_URL`).
 ```
 const tenants = Tenants.get();
 
-// ["tenant_1"];
+// ["", "tenant_1", "tenant_2];
 ```
 
-Tenant.collection:
+**Tenant.collection**
 ```
 let tenants = Tenents.collection.find({}).fetch();
 
@@ -88,7 +109,7 @@ let tenants = Tenents.collection.find({}).fetch();
 ```
 
 ### How it works
-All tenants does is extends an option on the Collection class to provid references to different collectionswhen `from(<tenant-x>)` is called. In order to get by the requirement of unique single collection names(because of the internal Meteor mutation methods and to prevent tenant collection overlap), we store`_tenants` collection in the main DB. This maps a unique collection name for each tenant with a simple count. If we use the `Links` example from above, in your main db the collection name would be `links`, for `tenant_1` the collection is named `links_0`, for `tenant_2` the collection is named `links_1`, and so on and so on. 
+All tenants does is extends an option on the Collection class to provid references to different collection swhen `from(<tenant-x>)` is called. In order to get by the requirement of unique single collection names(because of the internal Meteor mutation methods and to prevent tenant collection overlap), we store`_tenants` collection in the main DB. This maps a unique collection name for each tenant with a simple count. If we use the `Links` example from above, in your main db the collection name would be `links`, for `tenant_1` the collection is named `links_0`, for `tenant_2` the collection is named `links_1`, and so on and so on. 
 
 ### TODO
 * Testing

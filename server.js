@@ -5,14 +5,21 @@ import TenantCollection from './collection';
 
 let tenantList = {};
 let driverPool = {};
-let connectionMap = {};
 let connectionOptions = null;
 
 export const Tenants = {
-  set: function(tenants, disableAutoPublish, remoteConnectionOptions) {
+  set: function (tenants, disableAutoPublish, remoteConnectionOptions) {
     check(tenants, Object);
     Object.keys(tenants).forEach((key) => {
-      connectionMap[key] = tenants[key];
+      if (!driverPool[key]) {
+        driverPool[key] = {
+          driver: null,
+          lastAccessed: Date.now(),
+          connected: false,
+          connectionString: tenants[key],
+          collections: []
+        };
+      }
     });
 
     if (remoteConnectionOptions) {
@@ -26,14 +33,18 @@ export const Tenants = {
       });
     }
   },
-  get: function() {
-    return Object.keys(connectionMap);
+  get: function () {
+    return ["", ...Object.keys(driverPool)];
   },
   collection: TenantCollection
 }
 
-Mongo.Collection.prototype.from = function(key) {
+Mongo.Collection.prototype.from = function (key) {
   const context = this;
+  if (!key) {
+    return context;
+  }
+
   if (!context._tenants) {
     context._tenants = {};
   }
@@ -47,37 +58,36 @@ Mongo.Collection.prototype.from = function(key) {
         key: TenantCollection.find({}).count()
       }
 
+      // TODO
+      // this should be blocking for no overlap on a cluster
       TenantCollection.insert(tenant);
     }
 
     tenantList[key] = tenant;
   }
 
+  if (!driverPool[key].connected) {
+    driverPool[key].driver = new MongoInternals.RemoteCollectionDriver(driverPool[key].connectionString, connectionOptions);
+    driverPool[key].connected = true;
+  }
+
   let collection = context._tenants[key];
   if (!collection) {
-    let driver = driverPool[key];
-    if (!driver) {
-      const connectionString = connectionMap[key];
-      if (!connectionString) {
-        throw new Meteor.Error(`We can't find the tenant for key ${key}. Maybe it hasn't been initialized?`)
-      }
-
-      driver = new MongoInternals.RemoteCollectionDriver(connectionString, connectionOptions);
-
-      driverPool[key] = driver;
-    }
-
     // make sure we don't exceed the mongodb collection character size
     collection = new Mongo.Collection(`${context._name}_${tenant.key}`.substr(0, 123), {
-      _driver: driver
+      _driver: driverPool[key].driver
     });
 
     context._tenants[key] = collection;
+    driverPool[key].collections.push(collection);
   }
-  
+
+  // update the driver pool last accessed date
+  // we use for cleanup of driver pool access
+  driverPool[key].lastAccessed = Date.now();
+
   return collection;
 }
 
-// Variables exported by this module can be imported by other packages and
-// applications. See tenants-tests.js for an example of importing.
-export const name = 'tenants';
+// TODO
+// disconnect from connections
