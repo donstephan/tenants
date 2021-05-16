@@ -6,20 +6,24 @@ import TenantCollection from './collection';
 let tenantList = {};
 let driverPool = {};
 let connectionMap = {};
+let connectionOptions = null;
 
-let isAutoPublishDisabled = false;
 export const Tenants = {
-  set: function(tenants, disableAutoPublish) {
+  set: function(tenants, disableAutoPublish, remoteConnectionOptions) {
+    check(tenants, Object);
     Object.keys(tenants).forEach((key) => {
       connectionMap[key] = tenants[key];
     });
+
+    if (remoteConnectionOptions) {
+      check(remoteConnectionOptions, Object);
+      connectionOptions = remoteConnectionOptions;
+    }
 
     if (!disableAutoPublish) {
       Meteor.publish(null, () => {
         return TenantCollection.find({})
       });
-
-      isAutoPublishDisabled = true;
     }
   },
   get: function() {
@@ -58,11 +62,13 @@ Mongo.Collection.prototype.from = function(key) {
         throw new Meteor.Error(`We can't find the tenant for key ${key}. Maybe it hasn't been initialized?`)
       }
 
-      driver = new MongoInternals.RemoteCollectionDriver(connectionString);
+      driver = new MongoInternals.RemoteCollectionDriver(connectionString, connectionOptions);
+
       driverPool[key] = driver;
     }
 
-    collection = new Mongo.Collection(`${context._name}_${tenant.key}`, {
+    // make sure we don't exceed the mongodb collection character size
+    collection = new Mongo.Collection(`${context._name}_${tenant.key}`.substr(0, 123), {
       _driver: driver
     });
 
