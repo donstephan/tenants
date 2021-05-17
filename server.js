@@ -10,7 +10,7 @@ let connectionOptions = null;
 export const Tenants = {
   set: function (tenants, disableAutoPublish, remoteConnectionOptions) {
     check(tenants, Object);
-    Object.keys(tenants).forEach((key) => {
+    Object.keys(tenants).forEach(function (key) {
       if (!driverPool[key]) {
         driverPool[key] = {
           driver: null,
@@ -28,7 +28,7 @@ export const Tenants = {
     }
 
     if (!disableAutoPublish) {
-      Meteor.publish(null, () => {
+      Meteor.publish(null, function() {
         return TenantCollection.find({})
       });
     }
@@ -86,8 +86,34 @@ Mongo.Collection.prototype.from = function (key) {
   // we use for cleanup of driver pool access
   driverPool[key].lastAccessed = Date.now();
 
+  // if (driverPool[key].connected) {
+  //   driverPool[key].connected = false;
+  //   Promise.await(driverPool[key].driver.mongo.client.close());
+  // }
+  
+  if (!driverPool[key].connected) {
+    driverPool[key].connected = true;
+    Promise.await(driverPool[key].driver.mongo.client.connect());
+  }
+
   return collection;
 }
+
+const connectionHandler = function() {
+  Object.keys(driverPool).forEach(function (key) {
+    const lastAccessed = Date.now() - driverPool[key].lastAccessed;
+    const isConnected = driverPool[key].connected;
+    if (lastAccessed > 2000 && isConnected) {
+      console.log('disconnecting')
+      driverPool[key].driver.mongo.client.close();
+      driverPool[key].connected = false;
+    }
+  })
+
+  Meteor.setTimeout(connectionHandler, 1000);
+}
+
+// connectionHandler();
 
 // TODO
 // disconnect from connections
