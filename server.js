@@ -3,9 +3,16 @@ import { Mongo } from 'meteor/mongo';
 
 import TenantCollection from './collection';
 
+let logger = () => {};
+if (process.env.TENANTS_LOGGER) {
+  logger = (message) => {
+    console.log(message);
+  }
+}
+
 export const Tenants = {
-  TENANTS_POOL_DISCONNECT_TIME: process.env.TENANTS_POOL_DISCONNECT_TIME || 1000 * 10,
-  TENANTS_CLEANUP_INTERVAL: process.env.TENANTS_CLEANUP_INTERVAL || 1000 * 10,
+  TENANTS_POOL_DISCONNECT_TIME: process.env.TENANTS_POOL_DISCONNECT_TIME || 1000 * 30,
+  TENANTS_CLEANUP_INTERVAL: process.env.TENANTS_CLEANUP_INTERVAL || 1000 * 30,
   collection: TenantCollection,
   _driverPool: {},
   _tenantList: [],
@@ -39,7 +46,18 @@ export const Tenants = {
   },
   get: () => {
     return ["", ...Object.keys(Tenants._driverPool)];
+  },
+  _initialConnectionFuncs: {},
+}
+
+Mongo.Collection.prototype.onFirstConnection = function (cb) {
+  const context = this;
+
+  if (!Tenants._initialConnectionFuncs[context._name]) {
+    Tenants._initialConnectionFuncs[context._name] = [];
   }
+
+  Tenants._initialConnectionFuncs[context._name].push(cb);
 }
 
 Mongo.Collection.prototype.from = function (key) {
@@ -70,12 +88,12 @@ Mongo.Collection.prototype.from = function (key) {
   }
 
   if (!Tenants._driverPool[key].driver) {
-    // console.log("connecting!");
+    logger(`connecting to ${key}`);
     Tenants._driverPool[key].driver = new MongoInternals.RemoteCollectionDriver(Tenants._driverPool[key].connectionString, Tenants._connectionOptions);
   }
 
   if (!Tenants._driverPool[key].driver.mongo.client.topology.isConnected()) {
-    // console.log("reconnecting!");
+    logger(`reconnecting to ${key}`);
     Promise.await(Tenants._driverPool[key].driver.mongo.client.topology.connect());
   }
 
@@ -92,6 +110,16 @@ Mongo.Collection.prototype.from = function (key) {
     Tenants._driverPool[key].collectionNames.push(collection._name);
 
     collection._tenant = key;
+  }
+
+  if (!context._didProcessInitialConnection) {
+    context._didProcessInitialConnection = true;
+
+    if (Tenants._initialConnectionFuncs[context._name]?.length > 0) {
+      Tenants._initialConnectionFuncs[context._name].forEach((func) => {
+        Promise.await(func(collection, key));
+      });
+    }
   }
 
   // update the driver pool last accessed date
@@ -126,7 +154,7 @@ const connectionHandler = () => {
         if (hasActiveCursor) {
           Tenants._driverPool[key].lastAccessed = Date.now();
         } else {
-          // console.log("disconnecting");
+          logger(`disconnecting from ${key}`);
           Tenants._driverPool[key].driver.mongo.client.topology.close()
         }
       }

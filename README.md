@@ -37,6 +37,7 @@ Meteor.publish("tenants", () => {
   ]
 });
 
+```
 // example attaching simpl-schema across all your tenant collections
 import SimpleSchema from 'simpl-schema';
 import { Tenants } from 'meteor/donstephan:tenants';
@@ -52,20 +53,21 @@ const BookSchema = new SimpleSchema({
   }
 });
 
-// this will also apply the schema to the main tenant i.e. MONGO_URL
-Tenants.get().forEach((tenant) => {
-  Books.from(tenant).attachSchema(BookSchema);
+// this runs before the .from() command finishes
+// will await any promises
+Books.onFirstConnection((collection, tenant) => {
+  collection.attachSchema(BookSchema);
 });
 ```
 
 ### Why tenants?
-Sometimes you really do need data separations in seprate Mongo databases and/or clusters. Tenants makes this really easy to segement all while utilizing the very helpful collection interface that Meteor provides.
+Sometimes you really do need data separation in seprate Mongo databases and/or clusters. Tenants makes this really easy to do all while utilizing the very helpful collection interface that Meteor provides.
 
 ### Security Note
 Please note that in order to do the client side lookup of tenants `Collection.from(<tenant-name>)`, the `_tenant` collection is published to all clients. If you don't want a user to be able to see names of your tenants, use a UUID for a tenant name i.e. `6hKFY9zTpyNj5Gp6m: "mongodb://127.0.0.1:3001/tenant_1"` instead of something like `bema: "mongodb://127.0.0.1:3001/tenant_1"`. This collection is published in order to keep collection names unique. See how it works below.
 
 ### Other Notes
-* Mongo indexes will not translate across tenants since they are applied on a raw collection. You will have to make sure to perform `createIndex` on each tenant collection i.e. `Links.from("tenant_1").rawCollection().createIndex({ title: 1 })` or maybe something more creative like `Tenants.get().forEach((tenant) => Links.from(tenant).rawCollection().createIndex({ title: 1 }))`.
+* Mongo indexes will not translate across tenants since they are applied on a raw collection. You will have to make sure to perform `createIndex` on each tenant collection i.e. `Links.onFirstConnection((collection) => collection.rawCollection().createIndex({ title: 1 }))`.
 
 ### API
 **Tenants.set(tenants, disableAutoPublish, remoteConnectionOptions)**
@@ -88,6 +90,37 @@ In order to hook up functionality for LocalCollection to be accessed for that te
 See http://mongodb.github.io/node-mongodb-native/3.0/reference/connecting/connection-settings/.
 ```
 
+**<Mongo.Collection>.onFirstConnection(collection, tenant)**
+Performs a func the first time a tenant collection is fetched. Runs before `.from()` finishes. It will await promises. Useful to set things like indexes, allow/deny rules, schemas, grapher queries, collection hooks, etc etc.
+```
+const Books = new Mongo.Collection("books");
+
+const BookSchema = new SimpleSchema({
+  date: Date,
+  title: String,
+  description: {
+    type: String,
+    optional: true
+  }
+});
+
+Books.onFirstConnection((collection, tenant) => {
+  collection.attachSchema(BookSchema);
+
+  collection.allow({
+    insert: () => false,
+    update: () => false,
+    remove: () => false,
+  });
+
+  collection.deny({
+    insert: () => false,
+    update: () => false,
+    remove: () => false,
+  });
+});
+```
+
 **Tenants.get()**
 Note this also returns the default tenant collection (i.e. the main tenant or your `MONGO_URL`).
 ```
@@ -108,10 +141,14 @@ let tenants = Tenents.collection.find({}).fetch();
 */
 ```
 
+### Environment
+Optional settings can be set below. All settings can also be adjusted as well by setting the `Tenants.<settingName>` value.
+
+**TENANT_POOL_DISCONNECT_TIME**: ms to disconnect a collection since it has been accessed. Default is 30000 (30 seconds).
+**TENANTS_CLEANUP_INTERVAL**: ms to run GC cleanup on inactive tenant collections. Default is 30000 (30 seconds).
+
 ### How it works
-All tenants does is extends an option on the Collection class to provid references to different collection swhen `from(<tenant-x>)` is called. In order to get by the requirement of unique single collection names(because of the internal Meteor mutation methods and to prevent tenant collection overlap), we store`_tenants` collection in the main DB. This maps a unique collection name for each tenant with a simple count. If we use the `Links` example from above, in your main db the collection name would be `links`, for `tenant_1` the collection is named `links_0`, for `tenant_2` the collection is named `links_1`, and so on and so on. 
+All tenants does is extends an option on the Collection class to provide references to different collections when `<Mongo.Collection>.from(<tenant-x>)` is called. In order to get by the requirement of unique single collection names (because of the internal Meteor mutation methods and to prevent tenant collection overlap), we store a `_tenants` collection in the main DB. This maps a unique collection name for each tenant with a simple count. If we use the `Links` example from above, in your main db the collection name would be `links`, for `tenant_1` the collection is named `links_0`, for `tenant_2` the collection is named `links_1`, and so on and so on. 
 
 ### TODO
 * Testing
-* Disconnection of remote connection drivers if they are not used in a period of time i.e. we shouldn't keep alive a remote connection driver to a tenant if they have not accessed that collection in X minutes (seconds?)
-  * Currently we initialize 1 connection (need to validate in terms of pool sizing). If you have 100 tenants that would be 100 extra connections. We only need connections to stay alive while a tenant is accessing collections so some sort of automated cleanup makes sense to disconnect and reconnect when needed.
