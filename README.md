@@ -9,6 +9,8 @@ meteor add donstephan:tenants
 
 Start by initializing your tenants on startup. This provides a key, value lookup to initialize the tenants remote connection string.
 ```
+import { Tenants } from 'meteor/donstephan:tenants';
+
 Tenants.set({
   "tenant_1": "mongodb://127.0.0.1:3001/tenant_1",
   "tenant_2": process.env.TENANT_2,
@@ -41,7 +43,6 @@ Meteor.publish("tenants", () => {
 ```
 // example attaching simpl-schema across all your tenant collections
 import SimpleSchema from 'simpl-schema';
-import { Tenants } from 'meteor/donstephan:tenants';
 
 const Books = new Mongo.Collection("books");
 
@@ -65,10 +66,10 @@ Books.onFirstConnection((collection, tenant) => {
 Sometimes you really do need data separation in seprate Mongo databases and/or clusters. Tenants makes this really easy to do all while utilizing the very helpful collection interface that Meteor provides.
 
 ### Security Note
-Please note that in order to do the client side lookup of tenants `Collection.from(<tenant-name>)`, the `_tenant` collection is published to all clients. If you don't want a user to be able to see names of your tenants, use a UUID for a tenant name i.e. `6hKFY9zTpyNj5Gp6m: "mongodb://127.0.0.1:3001/tenant_1"` instead of something like `bema: "mongodb://127.0.0.1:3001/tenant_1"`. This collection is published in order to keep collection names unique. See how it works below.
+Please note that in order to do the client side lookup of tenants `Collection.from(<tenant-name>)`, the `_tenant` collection is published to all clients. If you don't want a user to be able to see names of your tenants, use a UUID for a tenant name i.e. `6hKFY9zTpyNj5Gp6m: "mongodb://127.0.0.1:3001/tenant_1"` instead of something like `bema: "mongodb://127.0.0.1:3001/tenant_1"`. You can also disable auto-publish of that collection when you set your tenants and control that piece yourself (example TODO). This collection is published in order to keep collection names unique. See how it works below.
 
 ### Other Notes
-* Mongo indexes will not translate across tenants since they are applied on a raw collection. You will have to make sure to perform `createIndex` on each tenant collection i.e. `Links.onFirstConnection((collection) => collection.rawCollection().createIndex({ title: 1 }))`.
+* Mongo indexes (and other startup functions) will not translate across tenants since they are applied on a raw collection. You will have to make sure to perform `createIndex` on each tenant collection i.e. `Links.onFirstConnection((collection) => collection.rawCollection().createIndex({ title: 1 }))`.
 
 ### API
 **Tenants.set(tenants, disableAutoPublish, remoteConnectionOptions)**
