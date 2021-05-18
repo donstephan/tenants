@@ -36,6 +36,7 @@ Meteor.publish("tenants", () => {
     Links.from("tenant_1").find({}) // publish links from tenant
   ]
 });
+```
 
 ```
 // example attaching simpl-schema across all your tenant collections
